@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Check-in NGOPI</title>
+<style>
+  :root {
+    --bg: #f3f1ec;
+    --ink: #1d2320;
+    --muted: #5c655f;
+    --line: #cfd3cc;
+    --ok-bg: #d4efdc;  --ok-ink: #14532d;
+    --dup-bg: #fbe9b5; --dup-ink: #6b4a00;
+    --bad-bg: #f8cfcf; --bad-ink: #7a1414;
+    --accent: #1f4e46;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161a18; --ink: #eef1ee; --muted: #a3ada6; --line: #38403b;
+      --ok-bg: #1d4a2e;  --ok-ink: #d9f5e2;
+      --dup-bg: #5a4408; --dup-ink: #fdf0c8;
+      --bad-bg: #5c1d1d; --bad-ink: #fbdcdc;
+      --accent: #7fc4b6;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--ink);
+    padding: 14px; max-width: 520px; margin: 0 auto;
+    padding-top: max(14px, env(safe-area-inset-top));
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+  }
+  h1 { font-size: 20px; margin: 4px 0 2px; }
+  .sub { color: var(--muted); font-size: 14px; margin: 0 0 12px; }
+  label { display: block; font-size: 14px; color: var(--muted); margin: 10px 0 4px; }
+  input, button {
+    font: inherit; font-size: 17px; width: 100%;
+    padding: 13px 14px; border-radius: 10px; border: 1px solid var(--line);
+    background: transparent; color: var(--ink);
+  }
+  input:focus-visible, button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  button { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .55; }
+  #reader { width: 100%; min-height: 40px; margin: 12px 0; border-radius: 12px; overflow: hidden; background: #000; }
+  #hasil {
+    display: none; border-radius: 14px; padding: 18px 16px; margin: 12px 0; text-align: center;
+  }
+  #hasil .judul { font-size: 15px; font-weight: 600; margin: 0 0 6px; }
+  #hasil .nama { font-size: 26px; font-weight: 700; line-height: 1.2; margin: 0 0 6px; word-break: break-word; }
+  #hasil .pesan { font-size: 16px; margin: 0; }
+  #hasil.ok  { background: var(--ok-bg);  color: var(--ok-ink); }
+  #hasil.dup { background: var(--dup-bg); color: var(--dup-ink); }
+  #hasil.bad { background: var(--bad-bg); color: var(--bad-ink); }
+  #info { font-size: 14px; color: var(--muted); margin: 8px 0; }
+  .manual { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .manual button { margin-top: 8px; }
+  #hitung { font-size: 14px; color: var(--muted); margin-top: 14px; text-align: center; }
+</style>
+</head>
+<body>
+  <h1>Check-in NGOPI</h1>
+  <p class="sub">Arahkan kamera ke QR tiket peserta.</p>
+
+  <label for="pin">PIN petugas</label>
+  <input id="pin" type="password" inputmode="numeric" autocomplete="off" placeholder="Masukkan PIN">
+
+  <div id="reader"></div>
+  <p id="info">Membuka kamera…</p>
+  <div id="hasil" role="status" aria-live="polite">
+    <p class="judul" id="judul"></p>
+    <p class="nama" id="nama"></p>
+    <p class="pesan" id="pesan"></p>
+  </div>
+
+  <div class="manual">
+    <label for="manual">Kamera bermasalah? Ketik kode tiket</label>
+    <input id="manual" autocapitalize="characters" autocomplete="off" placeholder="NGOPI-XXXXXXXX">
+    <button id="btnManual" type="button">Check-in manual</button>
+  </div>
+
+  <p id="hitung"></p>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+  <script>
+    // GANTI teks di antara tanda petik dengan URL aplikasi web Apps Script Anda (yang berakhiran /exec)
+    const URL_API = 'https://script.google.com/macros/s/AKfycbwBgw5X6bgI-OEyHKFTovfGFKDC6A1Xufw3dDCS9lJVD2-anZoLOt3mocHKseddMG31Iw/exec';
+
+    const $ = (id) => document.getElementById(id);
+    let sibuk = false;
+    let kodeTerakhir = '';
+    let waktuTerakhir = 0;
+    let jumlahBerhasil = 0;
+
+    try { $('pin').value = sessionStorage.getItem('pin') || ''; } catch (e) {}
+    $('pin').addEventListener('input', () => {
+      try { sessionStorage.setItem('pin', $('pin').value); } catch (e) {}
+    });
+
+    function tampil(jenis, judul, nama, pesan) {
+      const el = $('hasil');
+      el.className = jenis;
+      el.style.display = 'block';
+      $('judul').textContent = judul;
+      $('nama').textContent = nama || '';
+      $('pesan').textContent = pesan || '';
+      if (navigator.vibrate) navigator.vibrate(jenis === 'ok' ? 80 : [120, 60, 120]);
+    }
+
+    async function kirim(kode) {
+      kode = String(kode || '').trim();
+      if (!kode) return;
+      const sekarang = Date.now();
+      if (sibuk) return;
+      if (kode === kodeTerakhir && sekarang - waktuTerakhir < 3000) return;
+
+      if (URL_API.indexOf('http') !== 0) {
+        tampil('bad', 'Belum disiapkan', '', 'URL aplikasi web belum diisi di file index.html.');
+        return;
+      }
+      const pin = $('pin').value.trim();
+      if (!pin) {
+        tampil('bad', 'PIN kosong', '', 'Isi PIN petugas dulu.');
+        return;
+      }
+
+      sibuk = true;
+      kodeTerakhir = kode;
+      waktuTerakhir = sekarang;
+      $('info').textContent = 'Memeriksa tiket…';
+      try {
+        const url = URL_API + '?kode=' + encodeURIComponent(kode) + '&pin=' + encodeURIComponent(pin);
+        const res = await fetch(url);
+        const r = await res.json();
+        if (r.status === 'OK') {
+          jumlahBerhasil++;
+          $('hitung').textContent = jumlahBerhasil + ' tiket berhasil di perangkat ini';
+          tampil('ok', 'Berhasil', r.nama, r.pesan);
+        } else if (r.status === 'DUPLIKAT') {
+          tampil('dup', 'Tiket sudah dipakai', r.nama, r.pesan);
+        } else if (r.status === 'PIN') {
+          tampil('bad', 'PIN salah', '', 'Periksa PIN petugas lalu scan lagi.');
+          kodeTerakhir = '';
+        } else {
+          tampil('bad', 'Tiket tidak dikenal', '', r.pesan);
+        }
+      } catch (err) {
+        tampil('bad', 'Gagal terhubung', '', 'Periksa sinyal internet, lalu scan lagi.');
+        kodeTerakhir = '';
+      } finally {
+        $('info').textContent = 'Siap memindai.';
+        setTimeout(() => { sibuk = false; }, 1200);
+      }
+    }
+
+    $('btnManual').addEventListener('click', () => {
+      const k = $('manual').value;
+      kodeTerakhir = '';
+      kirim(k);
+    });
+
+    const scanner = new Html5Qrcode('reader');
+    scanner.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: { width: 240, height: 240 } },
+      (teks) => kirim(teks),
+      () => {}
+    ).then(() => {
+      $('info').textContent = 'Siap memindai.';
+    }).catch((err) => {
+      $('reader').style.display = 'none';
+      $('info').textContent = 'Kamera tidak bisa dibuka. Izinkan akses kamera di browser, atau pakai kolom ketik kode di bawah.';
+    });
+  </script>
+</body>
+</html>
