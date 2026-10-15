@@ -51,6 +51,9 @@
   #hasil .judul { font-size: 15px; font-weight: 600; margin: 0 0 6px; }
   #hasil .nama { font-size: 26px; font-weight: 700; line-height: 1.2; margin: 0 0 6px; word-break: break-word; }
   #hasil .pesan { font-size: 16px; margin: 0; }
+  #hasil .detail { display: none; margin: 12px 0 0; padding-top: 10px; border-top: 1px solid currentColor; text-align: left; }
+  #hasil .detail p { margin: 0 0 8px; font-size: 18px; font-weight: 600; line-height: 1.3; word-break: break-word; }
+  #hasil .detail small { display: block; font-size: 13px; font-weight: 400; opacity: .85; }
   #hasil.ok  { background: var(--ok-bg);  color: var(--ok-ink); }
   #hasil.dup { background: var(--dup-bg); color: var(--dup-ink); }
   #hasil.bad { background: var(--bad-bg); color: var(--bad-ink); }
@@ -73,6 +76,10 @@
     <p class="judul" id="judul"></p>
     <p class="nama" id="nama"></p>
     <p class="pesan" id="pesan"></p>
+    <div class="detail" id="detail">
+      <p><small>Kelas</small><span id="kelas"></span></p>
+      <p><small>Pesanan buku</small><span id="buku"></span></p>
+    </div>
   </div>
 
   <div class="manual">
@@ -86,7 +93,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
   <script>
     // GANTI teks di antara tanda petik dengan URL aplikasi web Apps Script Anda (yang berakhiran /exec)
-    const URL_API = 'https://script.google.com/macros/s/AKfycbwBgw5X6bgI-OEyHKFTovfGFKDC6A1Xufw3dDCS9lJVD2-anZoLOt3mocHKseddMG31Iw/exec';
+    const URL_API = 'GANTI_DENGAN_URL_WEB_APP';
 
     const $ = (id) => document.getElementById(id);
     let sibuk = false;
@@ -99,13 +106,17 @@
       try { sessionStorage.setItem('pin', $('pin').value); } catch (e) {}
     });
 
-    function tampil(jenis, judul, nama, pesan) {
+    function tampil(jenis, judul, nama, pesan, info) {
       const el = $('hasil');
       el.className = jenis;
       el.style.display = 'block';
       $('judul').textContent = judul;
       $('nama').textContent = nama || '';
       $('pesan').textContent = pesan || '';
+      const ada = info && (info.kelas || info.buku);
+      $('detail').style.display = ada ? 'block' : 'none';
+      $('kelas').textContent = (info && info.kelas) || '-';
+      $('buku').textContent = (info && info.buku) || '-';
       if (navigator.vibrate) navigator.vibrate(jenis === 'ok' ? 80 : [120, 60, 120]);
     }
 
@@ -137,9 +148,9 @@
         if (r.status === 'OK') {
           jumlahBerhasil++;
           $('hitung').textContent = jumlahBerhasil + ' tiket berhasil di perangkat ini';
-          tampil('ok', 'Berhasil', r.nama, r.pesan);
+          tampil('ok', 'Berhasil', r.nama, r.pesan, r);
         } else if (r.status === 'DUPLIKAT') {
-          tampil('dup', 'Tiket sudah dipakai', r.nama, r.pesan);
+          tampil('dup', 'Tiket sudah dipakai', r.nama, r.pesan, r);
         } else if (r.status === 'PIN') {
           tampil('bad', 'PIN salah', '', 'Periksa PIN petugas lalu scan lagi.');
           kodeTerakhir = '';
